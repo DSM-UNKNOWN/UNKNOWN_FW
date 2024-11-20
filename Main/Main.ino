@@ -1,60 +1,65 @@
-#include <Arduino.h>
 #include <WiFi.h>
+#include <TinyGPS++.h>
+#include <SoftwareSerial.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h>
-#include <HttpClient.h>
 
-const char* ssid = "iptime";
+const char* ssid = "2316";
+const char* password = "";
 
-int RxPin = 12;
-int TxPin = 13;
+TinyGPSPlus gps;
+SoftwareSerial gpsSerial(12, 13);
 
-IPAddress hostIp(00, 000, 00, 00);
-int SERVER_PORT = 8080;
-WiFiClient client;
+const char* serverUrl = "http://000.000.0.00:8080/user";
 
 void setup() {
-  Serial.begin(115200);
-  Serial2.begin(9600, SERIAL_8N1, RxPin, TxPin);
+  Serial.begin(115200); 
+  gpsSerial.begin(9600);
 
-  Serial.println(String("Connect try : ") + ssid);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid);
-
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.println(".");
+    Serial.print(".");
   }
-
-  Serial.print(String("WIFI conneted\n IP : "));
-  Serial.println(WiFi.localIP());
+  Serial.println("\nWiFi connected.");
+  Serial.println("IP address: " + WiFi.localIP().toString());
 }
 
 void loop() {
-  if (Serial2.available()) {
-    int value = Serial2.read();
-    Serial.println(value);
+  while (gpsSerial.available() > 0) {
+    char c = gpsSerial.read();
+    gps.encode(c);
 
+    if (gps.location.isUpdated()) {
+      double latitude = gps.location.lat();
+      double longitude = gps.location.lng();
+      Serial.printf("Latitude: %.6f, Longitude: %.6f\n", latitude, longitude);
+
+      sendGpsData(latitude, longitude);
+    }
+  }
+}
+
+void sendGpsData(double latitude, double longitude) {
+  if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
 
-    http.begin("http://00.000.00.00:8080/post");
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    http.begin(serverUrl);
+    http.addHeader("Content-Type", "application/json");
 
-    String httpRequestData = "&value=" + String(value);
-    Serial.println(httpRequestData);
-    int httpResponseCode = http.POST(httpRequestData);
+    String jsonPayload = String("{\"latitude\":") + latitude + ",\"longitude\":" + longitude + "}";
+
+    int httpResponseCode = http.POST(jsonPayload);
 
     if (httpResponseCode > 0) {
       String response = http.getString();
-      Serial.println(httpResponseCode);
-      Serial.println(response);
+      Serial.println("Server Response: " + response);
     } else {
-      Serial.print("Error on sending POST: ");
-      Serial.println(httpResponseCode);
+      Serial.println("Error on sending POST: " + String(httpResponseCode));
     }
+
     http.end();
   } else {
-    Serial.println("Error in WiFi connection");
+    Serial.println("WiFi Disconnected. Cannot send data.");
   }
-  delay(30000000);
 }
